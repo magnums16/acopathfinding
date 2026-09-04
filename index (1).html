@@ -1,0 +1,808 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ACO Robot Simulation — SLAM Style</title>
+<style>
+*{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0;background:#05090b;color:#d8e4e1;
+  font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+  overflow:hidden;
+}
+#app{height:100%;display:flex;flex-direction:column}
+header{
+  height:72px;flex:0 0 72px;display:flex;align-items:center;
+  padding:0 24px;border-bottom:1px solid #172125;
+  background:linear-gradient(180deg,#071013,#05090b);
+  letter-spacing:.12em;
+}
+.brand{display:flex;align-items:center;gap:13px}
+.logo{
+  width:24px;height:24px;border:1px solid #65d8b1;border-radius:50%;
+  position:relative;box-shadow:0 0 16px #65d8b133;
+}
+.logo:before,.logo:after{content:"";position:absolute;left:50%;top:50%;background:#65d8b1;transform:translate(-50%,-50%)}
+.logo:before{width:2px;height:18px}.logo:after{width:18px;height:2px}
+.brand h1{font-size:18px;margin:0;color:#d9eee9;letter-spacing:.18em}
+.brand small{display:block;font-size:9px;color:#76918c;margin-top:4px;letter-spacing:.22em}
+.stats{margin-left:auto;display:flex;gap:30px}
+.stat{text-align:right;border-left:1px solid #182327;padding-left:20px}
+.stat b{display:block;font-size:18px;color:#dce9e6;letter-spacing:.04em}
+.stat span{font-size:9px;color:#71827f;letter-spacing:.16em}
+#view{position:relative;flex:1;min-height:0;overflow:hidden;background:#05090b}
+canvas{display:block;width:100%;height:100%;touch-action:none}
+.status{
+  position:absolute;right:18px;top:16px;padding:8px 12px;border:1px solid #66331f;
+  border-radius:18px;color:#f07a43;background:#0a0d0d;box-shadow:0 0 18px #ef5b2530;
+  font-size:10px;letter-spacing:.18em
+}
+.status:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#f16a36;margin-right:8px;box-shadow:0 0 8px #f16a36}
+.editPanel{
+  position:absolute;left:18px;top:16px;display:none;gap:8px;padding:6px;
+  border:1px solid #1c2b2f;border-radius:10px;background:#0a0d0dcc;backdrop-filter:blur(4px);
+}
+.editPanel.show{display:flex}
+.editPanel button{
+  height:28px;padding:0 10px;font-size:9px;letter-spacing:.1em;border-radius:4px;
+}
+.editPanel button.on{border-color:#3d9c7d;color:#83e0be;background:#0f1a17}
+.editHint{
+  position:absolute;left:18px;bottom:12px;display:none;color:#5f7570;font-size:9px;
+  letter-spacing:.05em;background:#0a0d0dcc;padding:5px 9px;border-radius:6px;border:1px solid #16201f
+}
+.editHint.show{display:block}
+.bottom{
+  flex:0 0 62px;display:flex;align-items:center;gap:9px;padding:0 24px;
+  border-top:1px solid #172125;background:#060a0c
+}
+button{
+  height:36px;padding:0 15px;border:1px solid #1c2b2f;border-radius:5px;
+  background:#0a1012;color:#9eb0ad;font:inherit;font-size:11px;letter-spacing:.08em;cursor:pointer
+}
+button:hover{border-color:#385057;color:#d8e4e1}
+#go{border-color:#3d9c7d;color:#83e0be}
+#edit.active{border-color:#d48748;color:#f0a268}
+#clear{color:#d08b69}#reset{color:#8ea3a0}
+#bots{color:#8fb6e8}
+.readout{margin-left:auto;color:#64736f;font-size:10px;letter-spacing:.06em;white-space:nowrap}
+.readout b{color:#a9bbb7;font-weight:400}
+@media(max-width:800px){
+  header{padding:0 12px}.stats{gap:12px}.stat{padding-left:10px}
+  .bottom{padding:0 10px;gap:5px}.bottom button{padding:0 9px;font-size:9px}
+  .readout{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+<header>
+  <div class="brand">
+    <div class="logo"></div>
+    <div><h1>ACO SIMULATION</h1><small>ANT COLONY OPTIMIZATION · TEMPORARY MAP</small></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><b id="gen">000</b><span>GEN</span></div>
+    <div class="stat"><b id="ants">2</b><span>BOTS</span></div>
+    <div class="stat"><b id="len">—</b><span>ACO PATH</span></div>
+    <div class="stat"><b id="mode">IDLE</b><span>STATUS</span></div>
+  </div>
+</header>
+
+<div id="view">
+  <div class="status" id="badge">ACO READY</div>
+  <div class="editPanel" id="editPanel">
+    <button id="brushWall">WALL</button>
+    <button id="brushEntry">ENTRY</button>
+    <button id="brushExit">EXIT</button>
+  </div>
+  <div class="editHint" id="editHint">LEFT CLICK: PLACE · RIGHT CLICK: ERASE</div>
+</div>
+
+<div class="bottom">
+  <button id="go">▶ START</button>
+  <button id="edit">✦ EDIT MAP</button>
+  <button id="bots">BOTS: 2</button>
+  <button id="clear">◌ CLEAR TRAILS</button>
+  <button id="reset">↻ RESET VIEW</button>
+  <div class="readout">BOT 1&nbsp; <b id="robotReadout">x: — &nbsp; y: — &nbsp; θ: —</b></div>
+</div>
+</div>
+
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js"}}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import {OrbitControls} from 'https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/controls/OrbitControls.js';
+
+const host=document.getElementById('view');
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x05090b);
+
+const camera=new THREE.PerspectiveCamera(46,1,.1,2000);
+camera.position.set(48,58,62);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure=1.15;
+host.appendChild(renderer.domElement);
+
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enableDamping=true; controls.dampingFactor=.075;
+controls.minDistance=22; controls.maxDistance=180;
+controls.target.set(36,0,26);
+
+scene.add(new THREE.HemisphereLight(0x9fc6bd,0x020506,1.55));
+const sun=new THREE.DirectionalLight(0xe9fff8,2.4);
+sun.position.set(25,70,25); sun.castShadow=true;
+sun.shadow.mapSize.set(2048,2048);
+scene.add(sun);
+
+/* ---------- constants & state ---------- */
+
+const R=26,K=36,Z=2;
+const MAX_BOTS=3, MAX_POINTS=3;
+const BOT_COLORS=[0xf06a35,0x4fd1c5,0xc77dff];
+const ACO_GENS=30, ACO_STEPS_PER_FRAME=2;
+const EXPLORE_STEP_MS=90, EXPLORE_MAX_STEPS=1500, EXPLORE_DEPOSIT=.05;
+const NAV_SPEED=9.6;
+
+let g,p;
+let entries=[[24,2]], exits=[[2,33]];
+let numBots=2;
+let gen=0, phase='idle'; // idle | explore | aco | nav | done
+let edit=false, brush='wall', drawing=false, val=1;
+let bots=[], pairs=[];
+let lastRender=0, lastFrame=performance.now();
+let exploredCells=new Set(); // cells any bot has visited during exploration
+const TABU_LEN=14; // how many recent steps a bot refuses to revisit (breaks tight loops)
+
+const floor=new THREE.Mesh(
+  new THREE.BoxGeometry(K*Z,.55,R*Z),
+  new THREE.MeshStandardMaterial({color:0x0a1715,roughness:.96,metalness:.05})
+);
+floor.position.set(K*Z/2,-.45,R*Z/2);
+floor.receiveShadow=true; scene.add(floor);
+
+const mapGlow=new THREE.Mesh(
+  new THREE.PlaneGeometry(K*Z-.5,R*Z-.5),
+  new THREE.MeshBasicMaterial({color:0x0b1b18,transparent:true,opacity:.78})
+);
+mapGlow.rotation.x=-Math.PI/2; mapGlow.position.set(K*Z/2,-.155,R*Z/2); scene.add(mapGlow);
+
+const obstacleGroup=new THREE.Group();
+const markerGroup=new THREE.Group();
+const pathGroup=new THREE.Group();
+const pheromoneGroup=new THREE.Group();
+const trailGroup=new THREE.Group();
+const botsGroup=new THREE.Group();
+scene.add(obstacleGroup,markerGroup,pheromoneGroup,pathGroup,trailGroup,botsGroup);
+
+/* ---------- helpers ---------- */
+
+function clearGroup(q){
+  while(q.children.length){
+    const o=q.children.pop();
+    o.traverse(n=>{
+      if(n.geometry)n.geometry.dispose();
+      if(n.material){
+        if(Array.isArray(n.material))n.material.forEach(m=>m.dispose());
+        else n.material.dispose();
+      }
+    });
+  }
+}
+
+function world(v,y=0){return new THREE.Vector3(v[1]*Z+Z/2,y,v[0]*Z+Z/2)}
+function mat(color,opacity=1,emissive=0){
+  return new THREE.MeshStandardMaterial({
+    color,transparent:opacity<1,opacity,emissive:color,
+    emissiveIntensity:emissive,roughness:.55
+  });
+}
+function d(a,b){return Math.hypot(a[0]-b[0],a[1]-b[1])}
+function key(r,c){return r+','+c}
+function isPoint(arr,r,c){return arr.some(v=>v[0]===r&&v[1]===c)}
+function addPoint(arr,r,c,max){
+  if(isPoint(arr,r,c))return;
+  if(arr.length>=max)return;
+  arr.push([r,c]);
+}
+function removePoint(arr,r,c){
+  if(arr.length<=1)return;
+  const i=arr.findIndex(v=>v[0]===r&&v[1]===c);
+  if(i>=0)arr.splice(i,1);
+}
+
+function cellFree(r,c){return r>0&&r<R-1&&c>0&&c<K-1&&!g[r][c]}
+function neighbors(rc){
+  const [r,c]=rc,out=[];
+  for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+    if(!dr&&!dc)continue;
+    const nr=r+dr,nc=c+dc;
+    if(cellFree(nr,nc))out.push([nr,nc]);
+  }
+  return out;
+}
+
+/* ---------- map ---------- */
+
+function makeMap(){
+  g=Array.from({length:R},()=>Array(K).fill(0));
+  for(let r=0;r<R;r++)for(let c=0;c<K;c++)if(r==0||c==0||r==R-1||c==K-1)g[r][c]=1;
+  [[4,5,5,8],[10,3,4,12],[17,5,4,7],[6,17,10,3],[19,15,3,9],[3,27,7,3],[13,25,4,7],[8,31,9,2],[21,28,3,5]].forEach(a=>{
+    for(let r=a[0];r<a[0]+a[2];r++)for(let c=a[1];c<a[1]+a[3];c++)g[r][c]=1;
+  });
+  entries=[[24,2]]; exits=[[2,33]];
+  resetSimState();
+}
+
+function resetSimState(){
+  p=Array.from({length:R},()=>Array(K).fill(.05));
+  gen=0; phase='idle'; pairs=[];
+  clearGroup(pathGroup); clearGroup(trailGroup);
+  spawnBots();
+  rebuildStatic();
+  updateHUD();
+}
+
+/* ---------- bots ---------- */
+
+function makeBotMesh(color){
+  const grp=new THREE.Group();
+  const body=new THREE.Mesh(new THREE.CylinderGeometry(.43,.50,.22,24),mat(color,1,1.5));
+  body.rotation.x=Math.PI/2; body.castShadow=true; grp.add(body);
+  const core=new THREE.Mesh(new THREE.SphereGeometry(.18,18,12),new THREE.MeshBasicMaterial({color:0xffffff}));
+  core.position.y=.04; grp.add(core);
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(.66,.055,8,40),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.85}));
+  ring.rotation.x=Math.PI/2; ring.position.y=.01; ring.userData.spin=true; grp.add(ring);
+  const light=new THREE.PointLight(color,4.5,9); light.position.y=.45; grp.add(light);
+  const halo=new THREE.Mesh(new THREE.CircleGeometry(1.35,48),new THREE.MeshBasicMaterial({color,transparent:true,opacity:.10,depthWrite:false}));
+  halo.rotation.x=-Math.PI/2; halo.position.y=-.05; grp.add(halo);
+  grp.userData.halo=halo;
+  return grp;
+}
+
+function spawnBots(){
+  clearGroup(botsGroup);
+  bots=[];
+  exploredCells=new Set();
+  for(let i=0;i<numBots;i++){
+    const entry=entries[i%entries.length].slice();
+    const exit=exits[i%exits.length].slice();
+    const color=BOT_COLORS[i%BOT_COLORS.length];
+    const mesh=makeBotMesh(color);
+    const w=world(entry,.72);
+    mesh.position.copy(w);
+    botsGroup.add(mesh);
+    const entryKey=key(...entry);
+    exploredCells.add(entryKey);
+    bots.push({
+      id:i,entry,exit,color,mesh,
+      pos:entry.slice(), path:[entry.slice()],
+      recentQueue:[entryKey], recentSet:new Set([entryKey]),
+      steps:0, done:false, nextMoveAt:0,
+      fromWorld:w.clone(), toWorld:w.clone(), moveStart:performance.now(),
+      best:null, curve:null, routeLength:0, distance:0, renderTrail:[], navDone:false
+    });
+  }
+}
+
+/* ---------- static rendering (map / markers) ---------- */
+
+function rebuildObstacles(){
+  clearGroup(obstacleGroup);
+  for(let r=0;r<R;r++)for(let c=0;c<K;c++)if(g[r][c]){
+    const h=.65+((r+c)%3)*.18;
+    const cube=new THREE.Mesh(new THREE.BoxGeometry(Z*.94,h,Z*.94),mat(0x111b1d,1,.04));
+    cube.position.set(c*Z+Z/2,h/2-.05,r*Z+Z/2);
+    cube.castShadow=true;cube.receiveShadow=true;
+    obstacleGroup.add(cube);
+    const edge=new THREE.Mesh(new THREE.BoxGeometry(Z*.95,.035,Z*.95),new THREE.MeshBasicMaterial({color:0x29403d,transparent:true,opacity:.8}));
+    edge.position.copy(cube.position); edge.position.y=h+.015;
+    obstacleGroup.add(edge);
+  }
+}
+
+function makeMarker(v,color){
+  const grp=new THREE.Group();
+  const ring=new THREE.Mesh(new THREE.TorusGeometry(1.05,.10,12,40),mat(color,1,.45));
+  ring.rotation.x=Math.PI/2; ring.position.y=.08; grp.add(ring);
+  const cone=new THREE.Mesh(new THREE.ConeGeometry(.34,.55,20),mat(color,1,.8));
+  cone.position.y=.4; grp.add(cone);
+  grp.position.copy(world(v));
+  return grp;
+}
+
+function rebuildMarkers(){
+  clearGroup(markerGroup);
+  entries.forEach(v=>markerGroup.add(makeMarker(v,0x58bfa0)));
+  exits.forEach(v=>markerGroup.add(makeMarker(v,0x72d7b7)));
+}
+
+function rebuildStatic(){
+  rebuildObstacles();
+  rebuildMarkers();
+}
+
+/* ---------- pheromone field ---------- */
+
+function rebuildPheromones(){
+  clearGroup(pheromoneGroup);
+  let maxP=.05;
+  for(let r=1;r<R-1;r++)for(let c=1;c<K-1;c++)if(!g[r][c])maxP=Math.max(maxP,p[r][c]);
+
+  for(let r=1;r<R-1;r++){
+    for(let c=1;c<K-1;c++){
+      if(g[r][c])continue;
+      const strength=Math.min(1,p[r][c]/Math.max(.8,maxP));
+      if(strength<.035)continue;
+      const s=.18+.55*Math.pow(strength,.65);
+      const a=.10+.62*Math.pow(strength,.75);
+      const glow=new THREE.Mesh(
+        new THREE.CircleGeometry(s,16),
+        new THREE.MeshBasicMaterial({color:0x56c7a5,transparent:true,opacity:a,depthWrite:false})
+      );
+      glow.rotation.x=-Math.PI/2;
+      glow.position.copy(world([r,c],.13));
+      pheromoneGroup.add(glow);
+    }
+  }
+
+  const strong=[];
+  for(let r=1;r<R-1;r++)for(let c=1;c<K-1;c++)
+    if(!g[r][c]&&p[r][c]>Math.max(.35,maxP*.62))strong.push(world([r,c],.17));
+  if(strong.length){
+    const geo=new THREE.BufferGeometry().setFromPoints(strong);
+    pheromoneGroup.add(new THREE.Points(geo,new THREE.PointsMaterial({
+      color:0x8be3c8,size:.34,transparent:true,opacity:.55,sizeAttenuation:true,depthWrite:false
+    })));
+  }
+}
+
+/* ---------- route simplification (shared by ACO best-path rendering) ---------- */
+
+function lineOfSight(a,b){
+  const x0=a[1]+.5, z0=a[0]+.5, x1=b[1]+.5, z1=b[0]+.5;
+  const steps=Math.ceil(Math.hypot(x1-x0,z1-z0)*8);
+  for(let i=0;i<=steps;i++){
+    const t=i/Math.max(1,steps);
+    const c=Math.floor(x0+(x1-x0)*t), r=Math.floor(z0+(z1-z0)*t);
+    if(r<0||r>=R||c<0||c>=K||g[r][c])return false;
+  }
+  return true;
+}
+function simplifyPath(path){
+  if(!path||path.length<2)return [];
+  const out=[path[0].slice()];
+  let i=0;
+  while(i<path.length-1){
+    let far=i+1;
+    for(let j=i+2;j<path.length;j++){
+      if(lineOfSight(path[i],path[j]))far=j; else break;
+    }
+    out.push(path[far].slice());
+    i=far;
+  }
+  return out;
+}
+function makeCleanRoute(path){
+  const clean=simplifyPath(path);
+  if(clean.length<2)return null;
+  const raw=clean.map(v=>world(v,.34));
+  const curve=new THREE.CatmullRomCurve3(raw,false,'centripetal',0);
+  curve.arcLengthDivisions=Math.max(100,clean.length*30);
+  return {curve,clean};
+}
+
+function rebuildBotRoute(b){
+  if(!b.best){b.curve=null;b.routeLength=0;return}
+  const route=makeCleanRoute(b.best);
+  if(!route){b.curve=null;b.routeLength=0;return}
+  b.curve=route.curve; b.routeLength=b.curve.getLength();
+
+  const pts=b.curve.getPoints(Math.max(20,route.clean.length*6));
+  const underGeo=new THREE.BufferGeometry().setFromPoints(pts.map(v=>v.clone().setY(.30)));
+  pathGroup.add(new THREE.Line(underGeo,new THREE.LineBasicMaterial({color:0x285448,transparent:true,opacity:.4})));
+
+  const lineGeo=new THREE.BufferGeometry().setFromPoints(pts.map(v=>v.clone().setY(.40)));
+  pathGroup.add(new THREE.Line(lineGeo,new THREE.LineBasicMaterial({color:b.color,transparent:true,opacity:.95})));
+
+  for(let i=1;i<route.clean.length-1;i++){
+    const m=new THREE.Mesh(new THREE.SphereGeometry(.11,10,8),new THREE.MeshBasicMaterial({color:b.color,transparent:true,opacity:.7}));
+    m.position.copy(world(route.clean[i],.43));
+    pathGroup.add(m);
+  }
+}
+
+function rebuildTrails(){
+  clearGroup(trailGroup);
+  bots.forEach(b=>{
+    if(b.renderTrail.length<2)return;
+    const geo=new THREE.BufferGeometry().setFromPoints(b.renderTrail);
+    trailGroup.add(new THREE.Line(geo,new THREE.LineBasicMaterial({color:b.color,transparent:true,opacity:.30})));
+  });
+}
+
+/* ---------- phase 1: randomized exploration ---------- */
+
+function exploreWeight(v,exit){
+  // Three signals combine to decide where a wandering bot goes next:
+  //  - distW:    a soft pull toward its own exit (never a straight line)
+  //  - pherW:    attraction to existing pheromone — this is how a bot
+  //              "smells" a trail a companion bot already left nearby
+  //  - noveltyW: a bonus for cells nobody has stepped on yet, so that in
+  //              the absence of any pheromone the bot prefers to map new
+  //              territory instead of drifting back over old ground
+  const kv=key(...v);
+  const pher=p[v[0]][v[1]];
+  const distW=Math.pow(1/(d(v,exit)+.6),.5);
+  const pherW=Math.pow(pher+.015,1.6);
+  const noveltyW=exploredCells.has(kv)?.6:1.6;
+  return distW*pherW*noveltyW;
+}
+
+function exploreStepBot(b,now){
+  if(b.done)return;
+  if(b.pos[0]===b.exit[0]&&b.pos[1]===b.exit[1]){b.done=true;return}
+  const opts=neighbors(b.pos);
+  if(!opts.length)return;
+  b.steps++;
+
+  // Hard tabu: refuse to step back into any of the last TABU_LEN cells
+  // this bot itself has visited. This is what stops a bot from getting
+  // trapped pacing back and forth inside a small pocket.
+  let pool=opts.filter(v=>!b.recentSet.has(key(...v)));
+  let boxedIn=false;
+  if(!pool.length){pool=opts;boxedIn=true}
+
+  let choice;
+  if(b.steps>EXPLORE_MAX_STEPS||boxedIn){
+    // Forced to backtrack (dead end) or exploration has gone on too long:
+    // move deliberately toward the exit instead of randomly.
+    pool=[...pool].sort((x,y)=>d(x,b.exit)-d(y,b.exit));
+    choice=pool[0];
+  }else{
+    const weights=pool.map(v=>exploreWeight(v,b.exit));
+    const sum=weights.reduce((a,c)=>a+c,0);
+    let u=Math.random()*sum; choice=pool[0];
+    for(let i=0;i<pool.length;i++){u-=weights[i]; if(u<=0){choice=pool[i];break}}
+  }
+
+  b.fromWorld=b.toWorld.clone();
+  b.pos=choice;
+  b.path.push(choice.slice());
+
+  const ck=key(...choice);
+  b.recentQueue.push(ck); b.recentSet.add(ck);
+  if(b.recentQueue.length>TABU_LEN){
+    const old=b.recentQueue.shift();
+    if(!b.recentQueue.includes(old))b.recentSet.delete(old);
+  }
+  exploredCells.add(ck);
+
+  p[choice[0]][choice[1]]+=EXPLORE_DEPOSIT;
+  b.toWorld=world(choice,.72);
+  b.moveStart=now;
+  if(b.renderTrail.length===0)b.renderTrail.push(b.fromWorld.clone().setY(.40));
+  b.renderTrail.push(b.toWorld.clone().setY(.40));
+  if(b.renderTrail.length>300)b.renderTrail.shift();
+  if(choice[0]===b.exit[0]&&choice[1]===b.exit[1])b.done=true;
+}
+
+function tickExplore(now){
+  bots.forEach(b=>{
+    if(!b.done&&now>=b.nextMoveAt){
+      exploreStepBot(b,now);
+      b.nextMoveAt=now+EXPLORE_STEP_MS;
+    }
+  });
+  if(bots.every(b=>b.done)){
+    beginACO();
+  }
+}
+
+/* ---------- phase 2: ACO refinement ---------- */
+
+function ns(q){
+  const a=[];
+  for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+    if(!dr&&!dc)continue;
+    const r=q[0]+dr,c=q[1]+dc;
+    if(r>=0&&r<R&&c>=0&&c<K&&!g[r][c])a.push([r,c]);
+  }
+  return a;
+}
+function makeAnt(entry,exit){
+  let q=entry.slice(),path=[q.slice()],seen=new Set([key(...q)]);
+  for(let z=0;z<800;z++){
+    if(q[0]==exit[0]&&q[1]==exit[1])return path;
+    let a=ns(q).filter(v=>!seen.has(key(...v)));
+    if(!a.length)a=ns(q);
+    if(!a.length)return null;
+    let w=a.map(v=>Math.pow(p[v[0]][v[1]]+.01,1.2)*Math.pow(1/(d(v,exit)+.5),3));
+    let sum=w.reduce((a,b)=>a+b,0),u=Math.random()*sum,v=a[0];
+    for(let i=0;i<a.length;i++){u-=w[i];if(u<=0){v=a[i];break}}
+    q=v;path.push(q.slice());seen.add(key(...q));
+  }
+  return null;
+}
+function dep(a,n){
+  if(a)a.forEach((v,i)=>p[v[0]][v[1]]+=n*(1-i/a.length+.15));
+}
+
+function computePairs(){
+  const map=new Map();
+  bots.forEach(b=>{
+    const k=key(...b.entry)+'|'+key(...b.exit);
+    if(!map.has(k))map.set(k,{key:k,entry:b.entry,exit:b.exit,best:null});
+  });
+  pairs=[...map.values()];
+}
+
+function acoStep(){
+  pairs.forEach(pair=>{
+    const q=[];
+    for(let i=0;i<24;i++){const a=makeAnt(pair.entry,pair.exit); if(a)q.push(a)}
+    q.sort((a,b)=>a.length-b.length);
+    if(q.length){
+      if(!pair.best||q[0].length<pair.best.length)pair.best=q[0].map(v=>v.slice());
+      q.slice(0,12).forEach(a=>dep(a,18/(a.length+1)));
+      dep(q[0],80/(q[0].length+1));
+    }
+  });
+  for(let r=0;r<R;r++)for(let c=0;c<K;c++)p[r][c]=p[r][c]*.965+.05*.035;
+  gen++;
+}
+
+function beginACO(){
+  phase='aco'; gen=0; computePairs();
+  updateHUD();
+}
+
+function tickACO(){
+  for(let k=0;k<ACO_STEPS_PER_FRAME;k++)acoStep();
+  updateHUD();
+  if(gen>=ACO_GENS){
+    bots.forEach(b=>{
+      const pr=pairs.find(pp=>pp.key===key(...b.entry)+'|'+key(...b.exit));
+      b.best=pr?pr.best:null;
+      b.distance=0; b.renderTrail=[]; b.navDone=false;
+      rebuildBotRoute(b);
+    });
+    phase='nav';
+    updateHUD();
+  }
+}
+
+/* ---------- phase 3: navigation along the winning routes ---------- */
+
+function tickNav(dt){
+  let allDone=true;
+  bots.forEach(b=>{
+    if(!b.curve){b.navDone=true;return}
+    if(b.navDone)return;
+    allDone=false;
+    b.distance+=dt*NAV_SPEED;
+    if(b.distance>=b.routeLength){
+      b.distance=b.routeLength; b.navDone=true;
+    }
+    const t=Math.min(1,b.distance/b.routeLength);
+    const pos=b.curve.getPointAt(t);
+    if(!b.renderTrail.length||b.renderTrail[b.renderTrail.length-1].distanceTo(pos)>.18){
+      b.renderTrail.push(pos.clone().setY(.40));
+      if(b.renderTrail.length>240)b.renderTrail.shift();
+    }
+  });
+  if(allDone){phase='done';updateHUD()}
+}
+
+/* ---------- per-frame bot pose ---------- */
+
+function updateBotTransforms(now){
+  bots.forEach((b,idx)=>{
+    let pos,dir=null;
+    if(phase==='explore'){
+      const t=Math.min(1,(now-b.moveStart)/EXPLORE_STEP_MS);
+      pos=b.fromWorld.clone().lerp(b.toWorld,t);
+      dir=b.toWorld.clone().sub(b.fromWorld);
+    }else if(phase==='nav'&&b.curve){
+      const t=Math.min(1,b.distance/b.routeLength);
+      pos=b.curve.getPointAt(t);
+      const ahead=b.curve.getPointAt(Math.min(1,t+.006));
+      dir=ahead.clone().sub(pos);
+    }else{
+      pos=world(b.pos,.72);
+    }
+    b.mesh.position.copy(pos);
+    b.mesh.position.y=.72+Math.sin(now*.008+idx)*.025;
+    if(dir&&dir.lengthSq()>1e-6){
+      b.mesh.rotation.y=Math.atan2(dir.x,dir.z);
+    }
+    const ring=b.mesh.children.find(o=>o.userData?.spin);
+    if(ring)ring.rotation.z=now*.003;
+    const halo=b.mesh.userData.halo;
+    if(halo){
+      halo.scale.setScalar(1+.12*Math.sin(now*.006+idx));
+      halo.material.opacity=.075+.025*Math.sin(now*.006+idx);
+    }
+    if(idx===0){
+      const rx=(pos.x/Z-.5).toFixed(2), rz=(pos.z/Z-.5).toFixed(2);
+      const yaw=dir?((Math.atan2(dir.x,dir.z)*180/Math.PI+360)%360).toFixed(0):'—';
+      document.getElementById('robotReadout').textContent=`x: ${rx}  y: ${rz}  θ: ${yaw}°`;
+    }
+  });
+}
+
+/* ---------- HUD ---------- */
+
+function updateHUD(){
+  document.getElementById('gen').textContent=String(gen).padStart(3,'0');
+  document.getElementById('ants').textContent=String(numBots);
+  const lens=bots.map(b=>b.best?b.best.length:null).filter(x=>x!==null);
+  document.getElementById('len').textContent=lens.length?String(Math.min(...lens)).padStart(2,'0'):'—';
+  const modeMap={idle:'IDLE',explore:'EXPLORE',aco:'ACO',nav:'NAV',done:'DONE'};
+  document.getElementById('mode').textContent=modeMap[phase]||'IDLE';
+  const badgeMap={
+    idle:edit?'EDIT MAP':'ACO READY',
+    explore:'EXPLORING · RANDOM WALK',
+    aco:'OPTIMIZING PHEROMONES',
+    nav:'ROBOTS NAVIGATING',
+    done:'ROUTE COMPLETE'
+  };
+  document.getElementById('badge').textContent=badgeMap[phase]||'ACO READY';
+  document.getElementById('bots').textContent=`BOTS: ${numBots}`;
+}
+
+/* ---------- main loop ---------- */
+
+function renderScene(){
+  rebuildPheromones();
+  rebuildTrails();
+}
+
+function animate(now){
+  requestAnimationFrame(animate);
+  controls.update();
+
+  const dt=Math.min(.05,(now-lastFrame)/1000);
+  lastFrame=now;
+
+  if(phase==='explore')tickExplore(now);
+  else if(phase==='aco')tickACO();
+  else if(phase==='nav')tickNav(dt);
+
+  updateBotTransforms(now);
+
+  const throttle=phase==='aco'?0:16;
+  if(now-lastRender>throttle){
+    renderScene();
+    lastRender=now;
+  }
+
+  renderer.render(scene,camera);
+}
+
+/* ---------- input: map / entry / exit editing ---------- */
+
+function cell(e){
+  const rect=renderer.domElement.getBoundingClientRect();
+  const ndc=new THREE.Vector2(
+    ((e.clientX-rect.left)/rect.width)*2-1,
+    -((e.clientY-rect.top)/rect.height)*2+1
+  );
+  const ray=new THREE.Raycaster();
+  ray.setFromCamera(ndc,camera);
+  const plane=new THREE.Plane(new THREE.Vector3(0,1,0),0);
+  const hit=new THREE.Vector3();
+  if(!ray.ray.intersectPlane(plane,hit))return null;
+  const c=Math.floor(hit.x/Z),r=Math.floor(hit.z/Z);
+  return [r,c];
+}
+
+function editCell(e){
+  if(!edit)return;
+  const q=cell(e); if(!q)return;
+  const [r,c]=q;
+  if(r<1||r>=R-1||c<1||c>=K-1)return;
+
+  if(brush==='wall'){
+    if(isPoint(entries,r,c)||isPoint(exits,r,c))return;
+    g[r][c]=val;
+    resetSimState();
+    return;
+  }
+  if(brush==='entry'){
+    if(val===0)removePoint(entries,r,c);
+    else{ if(g[r][c]||isPoint(exits,r,c))return; addPoint(entries,r,c,MAX_POINTS); }
+    resetSimState();
+    return;
+  }
+  if(brush==='exit'){
+    if(val===0)removePoint(exits,r,c);
+    else{ if(g[r][c]||isPoint(entries,r,c))return; addPoint(exits,r,c,MAX_POINTS); }
+    resetSimState();
+    return;
+  }
+}
+
+renderer.domElement.addEventListener('pointerdown',e=>{
+  if(!edit)return;
+  drawing=true;val=e.button===2?0:1;editCell(e);
+});
+renderer.domElement.addEventListener('pointermove',e=>{if(drawing&&edit)editCell(e)});
+window.addEventListener('pointerup',()=>drawing=false);
+renderer.domElement.addEventListener('contextmenu',e=>{if(edit)e.preventDefault()});
+
+/* ---------- buttons ---------- */
+
+function setBrush(b){
+  brush=b;
+  ['brushWall','brushEntry','brushExit'].forEach(id=>document.getElementById(id).classList.remove('on'));
+  document.getElementById('brush'+b[0].toUpperCase()+b.slice(1)).classList.add('on');
+}
+document.getElementById('brushWall').onclick=()=>setBrush('wall');
+document.getElementById('brushEntry').onclick=()=>setBrush('entry');
+document.getElementById('brushExit').onclick=()=>setBrush('exit');
+
+document.getElementById('go').onclick=()=>{
+  if(edit){edit=false;controls.enabled=true;document.getElementById('edit').classList.remove('active');
+    document.getElementById('editPanel').classList.remove('show');
+    document.getElementById('editHint').classList.remove('show');}
+  if(phase==='idle'||phase==='done'){
+    resetSimState();
+    phase='explore';
+    lastFrame=performance.now();
+    updateHUD();
+  }
+};
+
+document.getElementById('edit').onclick=()=>{
+  phase='idle'; edit=!edit; controls.enabled=!edit;
+  document.getElementById('edit').classList.toggle('active',edit);
+  document.getElementById('editPanel').classList.toggle('show',edit);
+  document.getElementById('editHint').classList.toggle('show',edit);
+  if(edit)setBrush(brush);
+  updateHUD();
+};
+
+document.getElementById('bots').onclick=()=>{
+  if(phase!=='idle')return;
+  numBots=numBots>=MAX_BOTS?2:numBots+1;
+  resetSimState();
+};
+
+document.getElementById('clear').onclick=()=>{
+  bots.forEach(b=>b.renderTrail=[]);
+  renderScene();
+};
+
+document.getElementById('reset').onclick=()=>{
+  phase='idle'; edit=false; controls.enabled=true;
+  document.getElementById('edit').classList.remove('active');
+  document.getElementById('editPanel').classList.remove('show');
+  document.getElementById('editHint').classList.remove('show');
+  numBots=2;
+  camera.position.set(48,58,62);
+  controls.target.set(36,0,26);
+  controls.update();
+  makeMap();
+};
+
+function resize(){
+  const w=host.clientWidth,h=host.clientHeight;
+  camera.aspect=w/h;camera.updateProjectionMatrix();renderer.setSize(w,h,false);
+}
+window.addEventListener('resize',resize);
+resize();makeMap();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
